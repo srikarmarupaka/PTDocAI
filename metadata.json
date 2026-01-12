@@ -1,0 +1,5 @@
+{
+  "name": "PTDocAI",
+  "description": "An advanced penetration test reporting tool enhanced with Gemini AI to automatically generate humanized descriptions, map CVE/CWE/OWASP, and streamline the reporting workflow.",
+  "requestFramePermissions": []
+}
