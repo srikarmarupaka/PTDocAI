@@ -25,8 +25,26 @@ const Login: React.FC<LoginProps> = ({ notify }) => {
                 notify('success', 'Account created successfully');
             }
         } catch (error: any) {
-            console.error(error);
-            notify('error', error.message || 'Authentication failed');
+            console.error("Auth Error:", error);
+            let msg = 'Authentication failed. Please try again.';
+            
+            if (error.code === 'auth/invalid-credential') {
+                msg = isLogin 
+                    ? 'Invalid email or password. If you haven\'t created an account yet, please switch to Sign Up.' 
+                    : 'Failed to create account. Please try a different email.';
+            } else if (error.code === 'auth/email-already-in-use') {
+                msg = 'Email is already registered. Please Sign In instead.';
+            } else if (error.code === 'auth/weak-password') {
+                msg = 'Password should be at least 6 characters.';
+            } else if (error.code === 'auth/user-not-found') {
+                 msg = 'No account found with this email. Please Sign Up.';
+            } else if (error.code === 'auth/wrong-password') {
+                 msg = 'Incorrect password.';
+            } else if (error.message) {
+                msg = error.message;
+            }
+
+            notify('error', msg);
         } finally {
             setLoading(false);
         }
