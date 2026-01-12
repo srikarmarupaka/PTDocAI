@@ -1,11 +1,30 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { AIAnalysisResult, Finding } from "../types";
 
-const apiKey = process.env.API_KEY || '';
+// Helper to safely access API key in various environments (Vite/Node)
+const getApiKey = () => {
+    // Check process.env.API_KEY (System requirement)
+    if (typeof process !== 'undefined' && process.env?.API_KEY) {
+        return process.env.API_KEY;
+    }
+    // Check import.meta.env.VITE_GOOGLE_API_KEY (Vite standard)
+    // Cast to any to avoid TS errors if types aren't set
+    const metaEnv = (import.meta as any).env;
+    if (metaEnv?.VITE_GOOGLE_API_KEY) {
+        return metaEnv.VITE_GOOGLE_API_KEY;
+    }
+    // Check for non-prefixed API_KEY in import.meta.env (sometimes used)
+    if (metaEnv?.API_KEY) {
+        return metaEnv.API_KEY;
+    }
+    return '';
+};
+
+const apiKey = getApiKey();
 
 const getAIClient = () => {
   if (!apiKey) {
-    console.error("API Key is missing! Please ensure process.env.API_KEY is set.");
+    console.error("API Key is missing! Please set VITE_GOOGLE_API_KEY in your .env file.");
     return null;
   }
   return new GoogleGenAI({ apiKey });
@@ -23,6 +42,7 @@ export const analyzeVulnerability = async (
     
     Task: Enrich a vulnerability finding with authoritative data.
     Vulnerability Title: "${title}"
+    ${cveId ? `CVE ID: "${cveId}"` : ''}
 
     Instructions:
     1. Map the vulnerability to the most specific CWE ID (e.g., CWE-79).
@@ -33,7 +53,7 @@ export const analyzeVulnerability = async (
     6. Determine the Severity (Critical, High, Medium, Low, Info) based on the nature of the vulnerability.
 
     Output Requirement:
-    Return ONLY a valid JSON object. Do not include markdown code blocks.
+    Return ONLY a valid JSON object.
   `;
 
   try {
@@ -41,7 +61,7 @@ export const analyzeVulnerability = async (
       model: 'gemini-3-pro-preview',
       contents: prompt,
       config: {
-        tools: [{ googleSearch: {} }],
+        // Disabled googleSearch to ensure strict JSON response format as per guidelines
         responseMimeType: "application/json",
         responseSchema: {
           type: Type.OBJECT,
