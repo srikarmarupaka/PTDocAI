@@ -1,7 +1,7 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { AIAnalysisResult, Finding } from "../types";
 
-const apiKey = process.env.API_KEY || '';
+const apiKey = import.meta.env.VITE_GOOGLE_API_KEY || '';
 
 const getAIClient = () => {
   if (!apiKey) {
