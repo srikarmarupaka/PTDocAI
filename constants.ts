@@ -20,24 +20,3 @@ export const OWASP_CATEGORIES = [
   "A09:2021-Security Logging and Monitoring Failures",
   "A10:2021-Server-Side Request Forgery"
 ];
-
-export const MOCK_REPORTS = [
-  {
-    id: 'rep-001',
-    name: 'External Penetration Test Q1',
-    client: 'Acme Corp',
-    date: '2023-10-15',
-    status: 'Draft',
-    executiveSummary: '## Executive Summary\n\nDuring the external penetration assessment of Acme Corp\'s infrastructure, several critical vulnerabilities were identified. The overall security posture requires immediate attention, particularly regarding exposed administrative interfaces and outdated software components.\n\nKey risks include:\n- **Critical**: Unpatched VPN gateway susceptible to RCE.\n- **High**: Multiple instances of default credentials on management portals.\n\nWe recommend prioritizing the patching of the VPN gateway and enforcing a strong password policy immediately.',
-    findings: []
-  },
-  {
-    id: 'rep-002',
-    name: 'Internal API Audit',
-    client: 'Cyberdyne Systems',
-    date: '2023-09-20',
-    status: 'Review',
-    executiveSummary: '',
-    findings: []
-  }
-];
