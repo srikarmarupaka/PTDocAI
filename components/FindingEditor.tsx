@@ -80,9 +80,11 @@ const FindingEditor: React.FC<FindingEditorProps> = ({ finding, onSave, onCancel
         }));
         notify('success', 'Finding enriched with senior insights.');
       } else {
-        notify('error', 'AI returned no results.');
+        // analyzeVulnerability logs the specific reason to console
+        notify('error', 'AI analysis failed. Check console for details.');
       }
     } catch (err) {
+      console.error("FindingEditor handleAIAnalysis Error:", err);
       notify('error', 'AI service unavailable.');
     } finally {
       setIsAnalyzing(false);
@@ -167,8 +169,8 @@ const FindingEditor: React.FC<FindingEditorProps> = ({ finding, onSave, onCancel
               <div>
                 <label className="block text-sm font-medium text-gray-400 mb-2">OWASP Top 10</label>
                 <select value={editedFinding.owaspId || ''} onChange={(e) => handleChange('owaspId', e.target.value)} className="w-full bg-pwn-dark border border-gray-700 rounded-lg px-4 py-3 text-white outline-none">
-                    <option value="">Select Category</option>
-                    {OWASP_CATEGORIES.map(cat => <option key={cat} value={cat}>{cat}</option>)}
+                  <option value="">Select Category</option>
+                  {OWASP_CATEGORIES.map(cat => <option key={cat} value={cat}>{cat}</option>)}
                 </select>
               </div>
             </div>

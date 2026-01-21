@@ -10,11 +10,38 @@ Write as if you are drafting a high-stakes report for a premium client:
 - Provide highly specific, actionable remediation steps.
 - Ensure the tone is authoritative yet pragmatic.`;
 
+/**
+ * Safely retrieves the API key from the environment.
+ * Prevents ReferenceError in production environments where 'process' might not be defined.
+ */
+const getApiKey = (): string => {
+  try {
+    return process.env.API_KEY || '';
+  } catch (e) {
+    console.warn("PTDocAI: process.env is not accessible in this environment.");
+    return '';
+  }
+};
+
+/**
+ * Utility to extract JSON from a string that might contain markdown blocks.
+ */
+const extractJson = (text: string): string => {
+  const jsonMatch = text.match(/\{[\s\S]*\}/);
+  return jsonMatch ? jsonMatch[0] : text;
+};
+
 export const analyzeVulnerability = async (
   title: string,
   cveId?: string
 ): Promise<AIAnalysisResult | null> => {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
+  const apiKey = getApiKey();
+  if (!apiKey) {
+    console.error("PTDocAI: Gemini API Key is missing. Check your production environment variables.");
+    return null;
+  }
+
+  const ai = new GoogleGenAI({ apiKey });
 
   const prompt = `
     ${SYSTEM_PERSONA}
@@ -25,12 +52,12 @@ export const analyzeVulnerability = async (
 
     Requirements:
     1. Mapping: Accurate CWE ID and OWASP Top 10 (2021) category.
-    2. Description: A narrative assessment. Start with the "Bottom Line Up Front" (the business risk), followed by a clear technical explanation of the vulnerability. Avoid bullet points in this field.
+    2. Description: A narrative assessment. Start with the "Bottom Line Up Front" (the business risk), followed by a clear technical explanation of the vulnerability.
     3. Remediation: Specific technical instructions for developers to mitigate the risk effectively.
     4. Severity: Logical severity level (Critical, High, Medium, Low, Info).
     5. References: 2-3 high-quality technical URLs.
 
-    Output format: STRICT JSON only. Do not wrap in markdown code blocks. Do not use special characters or markdown bolding inside the JSON string values.
+    Output format: STRICT JSON only. Do not wrap in markdown code blocks.
   `;
 
   try {
@@ -60,16 +87,25 @@ export const analyzeVulnerability = async (
 
     const text = response.text;
     if (!text) return null;
-    return JSON.parse(text) as AIAnalysisResult;
+    
+    // Clean potential markdown or extra whitespace
+    const cleanJson = extractJson(text);
+    return JSON.parse(cleanJson) as AIAnalysisResult;
 
   } catch (error) {
-    console.error("Gemini Analysis Failed:", error);
+    console.error("PTDocAI: Gemini Analysis Failed:", error);
     return null;
   }
 };
 
 export const generateExecutiveSummary = async (findings: Finding[]): Promise<string | null> => {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
+  const apiKey = getApiKey();
+  if (!apiKey) {
+    console.error("PTDocAI: Gemini API Key is missing.");
+    return null;
+  }
+
+  const ai = new GoogleGenAI({ apiKey });
 
   if (findings.length === 0) return "No findings identified during this assessment.";
 
@@ -86,10 +122,9 @@ export const generateExecutiveSummary = async (findings: Finding[]): Promise<str
 
     Drafting Guidelines:
     1. Start with an executive assessment of the overall security posture.
-    2. Focus on the most significant risks to the business (financial, operational, or data-related).
-    3. Conclude with 2-3 strategic recommendations for long-term security improvement.
+    2. Focus on the most significant risks to the business.
+    3. Conclude with 2-3 strategic recommendations.
     4. Keep the narrative under 300 words.
-    5. Avoid generic boilerplate. Be specific to the severity of the findings provided.
   `;
 
   try {
@@ -100,7 +135,7 @@ export const generateExecutiveSummary = async (findings: Finding[]): Promise<str
 
     return response.text || null;
   } catch (error) {
-    console.error("Gemini Summary Generation Failed:", error);
+    console.error("PTDocAI: Gemini Summary Generation Failed:", error);
     return null;
   }
 };
