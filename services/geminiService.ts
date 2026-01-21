@@ -35,7 +35,7 @@ export const analyzeVulnerability = async (
 
   try {
     const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview', // Switched to Flash as requested
+      model: 'gemini-3-flash', 
       contents: prompt,
       config: {
         responseMimeType: "application/json",
@@ -94,7 +94,7 @@ export const generateExecutiveSummary = async (findings: Finding[]): Promise<str
 
   try {
     const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview', 
+      model: 'gemini-3-flash', 
       contents: prompt,
     });
 
