@@ -11,22 +11,6 @@ Write as if you are drafting a high-stakes report for a premium client:
 - Ensure the tone is authoritative yet pragmatic.`;
 
 /**
- * Safely retrieves the API key from the environment.
- * Prioritizes VITE_GOOGLE_API_KEY as requested.
- */
-const getApiKey = (): string => {
-  try {
-    if (typeof process !== 'undefined' && process.env) {
-      return (process.env.VITE_GOOGLE_API_KEY as string) || (process.env.API_KEY as string) || '';
-    }
-    return '';
-  } catch (e) {
-    console.warn("PTDocAI: Environment variables are not accessible.");
-    return '';
-  }
-};
-
-/**
  * Utility to extract JSON from a string that might contain markdown blocks.
  */
 const extractJson = (text: string): string => {
@@ -38,9 +22,11 @@ export const analyzeVulnerability = async (
   title: string,
   cveId?: string
 ): Promise<AIAnalysisResult | null> => {
-  const apiKey = getApiKey();
+  // Using VITE_GOOGLE_API_KEY exclusively as requested.
+  const apiKey = process.env.VITE_GOOGLE_API_KEY;
+  
   if (!apiKey) {
-    console.error("PTDocAI: Gemini API Key is missing. Please ensure VITE_GOOGLE_API_KEY is set in your environment.");
+    console.error("PTDocAI: Gemini API Key is missing. Ensure VITE_GOOGLE_API_KEY is set in your environment.");
     return null;
   }
 
@@ -65,7 +51,7 @@ export const analyzeVulnerability = async (
 
   try {
     const response = await ai.models.generateContent({
-      model: 'gemini-3-flash', 
+      model: 'gemini-3-flash-preview', 
       contents: prompt,
       config: {
         responseMimeType: "application/json",
@@ -102,7 +88,7 @@ export const analyzeVulnerability = async (
 };
 
 export const generateExecutiveSummary = async (findings: Finding[]): Promise<string | null> => {
-  const apiKey = getApiKey();
+  const apiKey = process.env.VITE_GOOGLE_API_KEY;
   if (!apiKey) {
     console.error("PTDocAI: Gemini API Key is missing.");
     return null;
@@ -132,7 +118,7 @@ export const generateExecutiveSummary = async (findings: Finding[]): Promise<str
 
   try {
     const response = await ai.models.generateContent({
-      model: 'gemini-3-flash', 
+      model: 'gemini-3-flash-preview', 
       contents: prompt,
     });
 
