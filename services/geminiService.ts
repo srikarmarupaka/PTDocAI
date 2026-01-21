@@ -12,13 +12,16 @@ Write as if you are drafting a high-stakes report for a premium client:
 
 /**
  * Safely retrieves the API key from the environment.
- * Prevents ReferenceError in production environments where 'process' might not be defined.
+ * Prioritizes VITE_GOOGLE_API_KEY as requested.
  */
 const getApiKey = (): string => {
   try {
-    return process.env.API_KEY || '';
+    if (typeof process !== 'undefined' && process.env) {
+      return (process.env.VITE_GOOGLE_API_KEY as string) || (process.env.API_KEY as string) || '';
+    }
+    return '';
   } catch (e) {
-    console.warn("PTDocAI: process.env is not accessible in this environment.");
+    console.warn("PTDocAI: Environment variables are not accessible.");
     return '';
   }
 };
@@ -37,7 +40,7 @@ export const analyzeVulnerability = async (
 ): Promise<AIAnalysisResult | null> => {
   const apiKey = getApiKey();
   if (!apiKey) {
-    console.error("PTDocAI: Gemini API Key is missing. Check your production environment variables.");
+    console.error("PTDocAI: Gemini API Key is missing. Please ensure VITE_GOOGLE_API_KEY is set in your environment.");
     return null;
   }
 
