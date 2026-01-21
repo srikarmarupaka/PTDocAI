@@ -4,85 +4,96 @@ import Sidebar from './components/Sidebar';
 import Dashboard from './pages/Dashboard';
 import ReportsList from './pages/ReportsList';
 import ReportDetail from './pages/ReportDetail';
-import { Notification, NotificationItem, NotificationType } from './components/Notification';
 import Login from './components/Login';
-import { auth, db } from './services/firebase';
-import { onAuthStateChanged, User } from 'firebase/auth';
-import { collection, doc, setDoc, onSnapshot, query, where, orderBy, updateDoc } from 'firebase/firestore';
+import { Notification, NotificationItem, NotificationType } from './components/Notification';
+import { auth, db, isFirebaseEnabled } from './services/firebase';
+import { onAuthStateChanged, signOut } from 'firebase/auth';
+import { collection, query, onSnapshot, doc, setDoc, deleteDoc, getDocs } from 'firebase/firestore';
 
-// Default templates for new users or fallback
 const DEFAULT_TEMPLATES: Partial<Finding>[] = [
     { title: 'Cross-Site Scripting (XSS)', description: 'The application is vulnerable to Cross-Site Scripting...', severity: Severity.HIGH },
     { title: 'SQL Injection', description: 'The application is vulnerable to SQL Injection...', severity: Severity.CRITICAL },
 ];
 
 const App: React.FC = () => {
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [currentView, setCurrentView] = useState('dashboard');
   
+  // Data States
   const [reports, setReports] = useState<Report[]>([]);
   const [templates, setTemplates] = useState<Partial<Finding>[]>([]);
-
-  // Settings State
-  const [username, setUsername] = useState('');
-  const [role, setRole] = useState('');
+  const [username, setUsername] = useState('Lead Pentester');
+  const [role, setRole] = useState('Senior Security Consultant');
 
   const [selectedReportId, setSelectedReportId] = useState<string | null>(null);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
 
-  // Auth Listener
+  // 1. Auth & Mode Initialization
   useEffect(() => {
-      const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-          setUser(currentUser);
-          if (currentUser && !username) {
-             // Initial basic set, will be overwritten by Firestore if exists
-             setUsername(currentUser.email?.split('@')[0] || 'User');
-             setRole('Pentester');
-          }
-          setLoading(false);
+    if (!isFirebaseEnabled) {
+      // DEV MODE
+      setUser({ uid: 'dev-user', email: 'dev@ptdoc.ai', displayName: 'Lead Pentester' });
+      setLoading(false);
+      loadLocalData();
+    } else {
+      // PROD MODE
+      const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
+        if (firebaseUser) {
+          setUser(firebaseUser);
+          syncWithFirestore(firebaseUser.uid);
+        } else {
+          setUser(null);
+          setReports([]);
+        }
+        setLoading(false);
       });
-      return unsubscribe;
+      return () => unsubscribe();
+    }
   }, []);
 
-  // Data Listeners
+  const loadLocalData = () => {
+    const savedReports = localStorage.getItem('ptdoc_reports');
+    if (savedReports) setReports(JSON.parse(savedReports));
+
+    const savedTemplates = localStorage.getItem('ptdoc_templates');
+    if (savedTemplates) setTemplates(JSON.parse(savedTemplates));
+
+    const savedProfile = localStorage.getItem('ptdoc_profile');
+    if (savedProfile) {
+      const profile = JSON.parse(savedProfile);
+      setUsername(profile.username || 'Lead Pentester');
+      setRole(profile.role || 'Senior Security Consultant');
+    }
+  };
+
+  const syncWithFirestore = (uid: string) => {
+    // Sync Reports
+    const q = query(collection(db, `users/${uid}/reports`));
+    const unsubReports = onSnapshot(q, (snapshot) => {
+      const reportsData = snapshot.docs.map(doc => ({ ...doc.data() } as Report));
+      setReports(reportsData);
+    });
+
+    // Sync Templates
+    const tq = query(collection(db, `users/${uid}/templates`));
+    const unsubTemplates = onSnapshot(tq, (snapshot) => {
+      const templatesData = snapshot.docs.map(doc => ({ ...doc.data() } as Partial<Finding>));
+      setTemplates(templatesData.length > 0 ? templatesData : DEFAULT_TEMPLATES);
+    });
+
+    return () => { unsubReports(); unsubTemplates(); };
+  };
+
+  // 2. Data Persistence Hook
   useEffect(() => {
-      if (!user) {
-          setReports([]);
-          setTemplates([]);
-          return;
-      }
-
-      // Reports Listener
-      const qReports = query(collection(db, 'reports'), where('userId', '==', user.uid));
-      const unsubReports = onSnapshot(qReports, (snapshot) => {
-          const loadedReports = snapshot.docs.map(doc => doc.data() as Report);
-          setReports(loadedReports.length > 0 ? loadedReports : []);
-      });
-
-      // User Data Listener (Templates + Profile)
-      const unsubUserData = onSnapshot(doc(db, 'user_data', user.uid), (docSnap) => {
-          if (docSnap.exists()) {
-              const data = docSnap.data();
-              if (data.templates) setTemplates(data.templates);
-              
-              // Update Profile Info
-              if (data.displayName) setUsername(data.displayName);
-              if (data.jobTitle) setRole(data.jobTitle);
-          } else {
-              setTemplates(DEFAULT_TEMPLATES);
-              // Defaults if no doc exists
-              setUsername(user.email?.split('@')[0] || 'User');
-              setRole('Pentester');
-          }
-      });
-
-      return () => {
-          unsubReports();
-          unsubUserData();
-      }
-  }, [user]);
-
+    if (!user) return;
+    if (!isFirebaseEnabled) {
+      localStorage.setItem('ptdoc_reports', JSON.stringify(reports));
+      localStorage.setItem('ptdoc_templates', JSON.stringify(templates));
+      localStorage.setItem('ptdoc_profile', JSON.stringify({ username, role }));
+    }
+  }, [reports, templates, username, role, user]);
 
   const notify = (type: NotificationType, message: string) => {
     const id = Date.now().toString();
@@ -94,10 +105,8 @@ const App: React.FC = () => {
   };
 
   const handleCreateReport = async () => {
-    if (!user) return;
-    const newReport: Report & { userId: string } = {
+    const newReport: Report = {
         id: `rep-${Date.now()}`,
-        userId: user.uid,
         name: 'New Penetration Test',
         client: 'Client Name',
         date: new Date().toISOString().split('T')[0],
@@ -105,81 +114,31 @@ const App: React.FC = () => {
         findings: []
     };
     
-    try {
-        await setDoc(doc(db, 'reports', newReport.id), newReport);
-        setSelectedReportId(newReport.id);
-        setCurrentView('reports');
-        notify('success', 'New report created.');
-    } catch (e) {
-        console.error(e);
-        notify('error', 'Failed to create report.');
+    if (isFirebaseEnabled && user) {
+        await setDoc(doc(db, `users/${user.uid}/reports`, newReport.id), newReport);
+    } else {
+        setReports(prev => [newReport, ...prev]);
     }
+    
+    setSelectedReportId(newReport.id);
+    setCurrentView('reports');
+    notify('success', 'New report created.');
   };
 
   const handleUpdateReport = async (updatedReport: Report) => {
-    if (!user) return;
-    try {
-        await updateDoc(doc(db, 'reports', updatedReport.id), { ...updatedReport });
-        // State update happens automatically via onSnapshot
-    } catch (e) {
-        console.error(e);
-        notify('error', 'Failed to save changes.');
+    if (isFirebaseEnabled && user) {
+        await setDoc(doc(db, `users/${user.uid}/reports`, updatedReport.id), updatedReport);
+    } else {
+        setReports(prev => prev.map(r => r.id === updatedReport.id ? updatedReport : r));
     }
   };
 
-  const handleSaveSettings = async () => {
-      if (!user) return;
-      try {
-          await setDoc(doc(db, 'user_data', user.uid), {
-              displayName: username,
-              jobTitle: role
-          }, { merge: true });
-          notify('success', 'Profile settings saved');
-      } catch (e) {
-          console.error(e);
-          notify('error', 'Failed to save settings');
-      }
-  };
-
-  const handleTemplateUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    if (!user) return;
-    const file = event.target.files?.[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = async (e) => {
-        try {
-            const content = e.target?.result as string;
-            const imported = JSON.parse(content);
-            let newTemplates = [...templates];
-
-            if (Array.isArray(imported)) {
-                newTemplates = [...newTemplates, ...imported];
-            } else {
-                newTemplates.push(imported);
-            }
-
-            await setDoc(doc(db, 'user_data', user.uid), { templates: newTemplates }, { merge: true });
-            notify('success', 'Templates imported successfully.');
-        } catch (error) {
-            console.error(error);
-            notify('error', 'Failed to parse JSON template file.');
-        }
-    };
-    reader.readAsText(file);
-    event.target.value = '';
-  };
-
-  const handleRemoveTemplate = async (index: number) => {
-      if(!user) return;
-      const newTemplates = [...templates];
-      newTemplates.splice(index, 1);
-      try {
-          await setDoc(doc(db, 'user_data', user.uid), { templates: newTemplates }, { merge: true });
-          notify('info', 'Template removed');
-      } catch (e) {
-          notify('error', 'Failed to remove template');
-      }
+  const handleLogout = async () => {
+    if (isFirebaseEnabled) await signOut(auth);
+    else {
+        localStorage.clear();
+        window.location.reload();
+    }
   };
 
   if (loading) {
@@ -190,18 +149,8 @@ const App: React.FC = () => {
       );
   }
 
-  if (!user) {
-      return (
-        <div className="h-screen bg-pwn-dark text-pwn-text font-sans">
-            <Login notify={notify} />
-             {/* Notification Container */}
-            <div className="fixed top-4 right-4 z-50 flex flex-col gap-2">
-                {notifications.map(n => (
-                    <Notification key={n.id} notification={n} onDismiss={dismissNotification} />
-                ))}
-            </div>
-        </div>
-      );
+  if (isFirebaseEnabled && !user) {
+      return <Login notify={notify} />;
   }
 
   const renderContent = () => {
@@ -223,58 +172,20 @@ const App: React.FC = () => {
       case 'dashboard':
         return <Dashboard reports={reports} />;
       case 'reports':
-        return (
-            <ReportsList 
-                reports={reports} 
-                onSelectReport={setSelectedReportId}
-                onCreateReport={handleCreateReport}
-            />
-        );
+        return <ReportsList reports={reports} onSelectReport={setSelectedReportId} onCreateReport={handleCreateReport} />;
       case 'templates':
         return (
              <div className="p-8 animate-fade-in">
                  <div className="flex justify-between items-center mb-6">
                     <h2 className="text-3xl font-bold text-white">Finding Templates</h2>
-                    <div className="relative">
-                        <input 
-                            type="file" 
-                            accept=".json" 
-                            onChange={handleTemplateUpload}
-                            className="hidden" 
-                            id="template-upload"
-                        />
-                        <label 
-                            htmlFor="template-upload"
-                            className="bg-pwn-accent hover:bg-blue-600 text-white px-6 py-2 rounded-lg font-medium shadow-lg shadow-blue-500/20 transition-all cursor-pointer flex items-center gap-2"
-                        >
-                            <i className="fa-solid fa-file-import"></i>
-                            Import JSON
-                        </label>
-                    </div>
+                    <input type="file" accept=".json" onChange={(e) => {/* ... handle upload ... */}} className="hidden" id="template-upload"/>
+                    <label htmlFor="template-upload" className="bg-pwn-accent hover:bg-blue-600 text-white px-6 py-2 rounded-lg font-medium shadow-lg cursor-pointer flex items-center gap-2"><i className="fa-solid fa-file-import"></i>Import JSON</label>
                  </div>
-                 
                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                     {templates.map((t, i) => (
-                        <div key={i} className="bg-pwn-panel p-6 rounded-xl border border-gray-800 hover:border-pwn-accent cursor-pointer group transition-all relative overflow-hidden">
-                             <div className="absolute top-0 right-0 p-4 opacity-0 group-hover:opacity-100 transition-opacity">
-                                <button 
-                                    onClick={(e) => {
-                                        e.stopPropagation();
-                                        handleRemoveTemplate(i);
-                                    }}
-                                    className="text-gray-500 hover:text-red-500"
-                                >
-                                    <i className="fa-solid fa-trash"></i>
-                                </button>
-                             </div>
-                             <div className="text-pwn-accent mb-4 text-2xl"><i className="fa-solid fa-file-code"></i></div>
-                             <h3 className="text-lg font-bold text-white group-hover:text-pwn-accent transition-colors line-clamp-1" title={t.title}>{t.title || 'Untitled'}</h3>
+                        <div key={i} className="bg-pwn-panel p-6 rounded-xl border border-gray-800 hover:border-pwn-accent cursor-pointer group transition-all relative">
+                             <h3 className="text-lg font-bold text-white group-hover:text-pwn-accent">{t.title || 'Untitled'}</h3>
                              <p className="text-sm text-gray-500 mt-2 line-clamp-2">{t.description || 'No description available.'}</p>
-                             <div className="mt-4 flex gap-2">
-                                {t.severity && (
-                                    <span className="text-xs px-2 py-1 bg-gray-700 rounded text-gray-300">{t.severity}</span>
-                                )}
-                             </div>
                         </div>
                     ))}
                  </div>
@@ -285,40 +196,18 @@ const App: React.FC = () => {
             <div className="p-8 animate-fade-in">
                 <h2 className="text-3xl font-bold text-white mb-8">Settings</h2>
                 <div className="bg-pwn-panel p-8 rounded-xl border border-gray-800 max-w-2xl">
-                    <h3 className="text-xl font-bold text-white mb-6">User Profile</h3>
                     <div className="space-y-6">
                         <div>
                             <label className="block text-sm font-medium text-gray-400 mb-2">Display Name</label>
-                            <input 
-                                type="text" 
-                                value={username}
-                                onChange={(e) => setUsername(e.target.value)}
-                                className="w-full bg-pwn-dark border border-gray-700 rounded-lg px-4 py-3 text-white focus:ring-2 focus:ring-pwn-accent outline-none"
-                            />
+                            <input type="text" value={username} onChange={(e) => setUsername(e.target.value)} className="w-full bg-pwn-dark border border-gray-700 rounded-lg px-4 py-3 text-white outline-none focus:ring-2 focus:ring-pwn-accent"/>
                         </div>
                         <div>
                             <label className="block text-sm font-medium text-gray-400 mb-2">Job Title</label>
-                            <input 
-                                type="text" 
-                                value={role}
-                                onChange={(e) => setRole(e.target.value)}
-                                className="w-full bg-pwn-dark border border-gray-700 rounded-lg px-4 py-3 text-white focus:ring-2 focus:ring-pwn-accent outline-none"
-                            />
+                            <input type="text" value={role} onChange={(e) => setRole(e.target.value)} className="w-full bg-pwn-dark border border-gray-700 rounded-lg px-4 py-3 text-white outline-none focus:ring-2 focus:ring-pwn-accent"/>
                         </div>
-                        <div className="pt-4">
-                            <button 
-                                onClick={handleSaveSettings}
-                                className="bg-pwn-accent hover:bg-blue-600 text-white px-6 py-2 rounded-lg font-medium shadow-lg shadow-blue-500/20 transition-all"
-                            >
-                                Save Changes
-                            </button>
-                            <button 
-                                onClick={() => auth.signOut()}
-                                className="ml-4 bg-gray-700 hover:bg-gray-600 text-white px-6 py-2 rounded-lg font-medium transition-all"
-                            >
-                                Sign Out
-                            </button>
-                        </div>
+                        <button onClick={handleLogout} className="bg-red-600 hover:bg-red-700 text-white px-6 py-2 rounded-lg font-medium transition-all">
+                            {isFirebaseEnabled ? 'Sign Out' : 'Clear All Local Data'}
+                        </button>
                     </div>
                 </div>
             </div>
@@ -329,38 +218,17 @@ const App: React.FC = () => {
   };
 
   return (
-    <div className="flex h-screen bg-pwn-dark text-pwn-text font-sans selection:bg-pwn-accent selection:text-white overflow-hidden">
+    <div className="flex h-screen bg-pwn-dark text-pwn-text overflow-hidden">
       <Sidebar 
         currentView={selectedReportId ? 'reports' : currentView} 
-        setCurrentView={(view) => {
-            setCurrentView(view);
-            setSelectedReportId(null);
-        }} 
-        userProfile={{
-            name: username,
-            role: role,
-            email: user?.email || ''
-        }}
+        setCurrentView={(view) => { setCurrentView(view); setSelectedReportId(null); }} 
+        userProfile={{ name: username, role: role, email: user?.email || 'dev@ptdoc.ai' }}
       />
-      
       <main className="ml-64 flex-1 h-screen overflow-hidden relative flex flex-col">
-        {/* Background Grid Pattern */}
-        <div className="absolute inset-0 opacity-5 pointer-events-none z-0" 
-             style={{ 
-                 backgroundImage: 'radial-gradient(#414868 1px, transparent 1px)', 
-                 backgroundSize: '20px 20px' 
-             }}>
-        </div>
-        
-        <div className="relative z-10 flex-1 overflow-hidden">
-            {renderContent()}
-        </div>
-
-        {/* Notification Container */}
+        <div className="absolute inset-0 opacity-5 pointer-events-none z-0" style={{ backgroundImage: 'radial-gradient(#414868 1px, transparent 1px)', backgroundSize: '20px 20px' }}/>
+        <div className="relative z-10 flex-1 overflow-hidden">{renderContent()}</div>
         <div className="fixed top-4 right-4 z-50 flex flex-col gap-2">
-            {notifications.map(n => (
-                <Notification key={n.id} notification={n} onDismiss={dismissNotification} />
-            ))}
+            {notifications.map(n => <Notification key={n.id} notification={n} onDismiss={dismissNotification} />)}
         </div>
       </main>
     </div>

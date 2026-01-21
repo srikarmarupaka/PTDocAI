@@ -1,67 +1,43 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { AIAnalysisResult, Finding } from "../types";
 
-// Helper to safely access API key in various environments (Vite/Node)
-const getApiKey = () => {
-    // Check process.env.API_KEY (System requirement)
-    if (typeof process !== 'undefined' && process.env?.API_KEY) {
-        return process.env.API_KEY;
-    }
-    // Check import.meta.env.VITE_GOOGLE_API_KEY (Vite standard)
-    // Cast to any to avoid TS errors if types aren't set
-    const metaEnv = (import.meta as any).env;
-    if (metaEnv?.VITE_GOOGLE_API_KEY) {
-        return metaEnv.VITE_GOOGLE_API_KEY;
-    }
-    // Check for non-prefixed API_KEY in import.meta.env (sometimes used)
-    if (metaEnv?.API_KEY) {
-        return metaEnv.API_KEY;
-    }
-    return '';
-};
-
-const apiKey = getApiKey();
-
-const getAIClient = () => {
-  if (!apiKey) {
-    console.error("API Key is missing! Please set VITE_GOOGLE_API_KEY in your .env file.");
-    return null;
-  }
-  return new GoogleGenAI({ apiKey });
-};
+const SYSTEM_PERSONA = `You are a Lead Offensive Security Consultant with deep expertise in penetration testing.
+Your writing style is professional, direct, and humanized. 
+Avoid "AI-isms" like "I hope this helps" or "Here is the enriched finding."
+Write as if you are drafting a high-stakes report for a premium client:
+- Use active voice and professional terminology.
+- Prioritize business risk and impact over generic definitions.
+- Provide highly specific, actionable remediation steps.
+- Ensure the tone is authoritative yet pragmatic.`;
 
 export const analyzeVulnerability = async (
   title: string,
   cveId?: string
 ): Promise<AIAnalysisResult | null> => {
-  const ai = getAIClient();
-  if (!ai) return null;
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
 
   const prompt = `
-    You are an expert Penetration Tester and Technical Report Writer.
+    ${SYSTEM_PERSONA}
     
-    Task: Enrich a vulnerability finding with authoritative data.
-    Vulnerability Title: "${title}"
-    ${cveId ? `CVE ID: "${cveId}"` : ''}
+    Task: Contextualize and enrich the following vulnerability for a formal security report.
+    Vulnerability: "${title}"
+    ${cveId ? `Reference CVE: "${cveId}"` : ''}
 
-    Instructions:
-    1. Map the vulnerability to the most specific CWE ID (e.g., CWE-79).
-    2. Map the vulnerability to the correct OWASP Top 10 2021 category ID (format: "Axx:2021-Category Name", e.g., "A03:2021-Injection").
-    3. Provide a "humanized" description: Start with a simple explanation of the risk for business stakeholders, followed by technical details for engineers.
-    4. Provide specific, step-by-step remediation instructions.
-    5. Include authoritative references (NVD, OWASP, vendor advisories).
-    6. Determine the Severity (Critical, High, Medium, Low, Info) based on the nature of the vulnerability.
+    Requirements:
+    1. Mapping: Accurate CWE ID and OWASP Top 10 (2021) category.
+    2. Description: A narrative assessment. Start with the "Bottom Line Up Front" (the business risk), followed by a clear technical explanation of the vulnerability. Avoid bullet points in this field.
+    3. Remediation: Specific technical instructions for developers to mitigate the risk effectively.
+    4. Severity: Logical severity level (Critical, High, Medium, Low, Info).
+    5. References: 2-3 high-quality technical URLs.
 
-    Output Requirement:
-    Return ONLY a valid JSON object.
+    Output format: STRICT JSON only. Do not wrap in markdown code blocks. Do not use special characters or markdown bolding inside the JSON string values.
   `;
 
   try {
     const response = await ai.models.generateContent({
-      model: 'gemini-3-pro-preview',
+      model: 'gemini-3-flash-preview', // Switched to Flash as requested
       contents: prompt,
       config: {
-        // Disabled googleSearch to ensure strict JSON response format as per guidelines
         responseMimeType: "application/json",
         responseSchema: {
           type: Type.OBJECT,
@@ -93,31 +69,27 @@ export const analyzeVulnerability = async (
 };
 
 export const generateExecutiveSummary = async (findings: Finding[]): Promise<string | null> => {
-  const ai = getAIClient();
-  if (!ai) return null;
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
 
-  if (findings.length === 0) {
-    return "No findings available to generate a summary.";
-  }
+  if (findings.length === 0) return "No findings identified during this assessment.";
 
-  const findingsSummary = findings.map(f => `- ${f.title} (${f.severity}): ${f.status}`).join('\n');
+  const findingsSummary = findings.map(f => `- ${f.title} [${f.severity}]`).join('\n');
 
   const prompt = `
-    You are a Lead Penetration Tester writing a formal report for a client.
+    ${SYSTEM_PERSONA}
     
-    Task: Write a concise, human-readable Executive Summary based on the following findings.
-    Target Audience: Non-technical stakeholders (C-level executives, Managers).
+    Task: Draft a concise Executive Summary for a security assessment report.
+    Audience: Business Leaders and Technical Directors.
     
-    Findings List:
+    Findings Identified:
     ${findingsSummary}
 
-    Requirements:
-    1. Start with an assessment of the overall security posture.
-    2. Highlight the most critical risks and their potential business impact (financial, reputational, operational).
-    3. Provide high-level strategic recommendations for the roadmap.
-    4. Avoid deep technical jargon; focus on risk and impact.
-    5. Keep it concise (approx. 200-300 words).
-    6. Use Markdown format (headers, bold text, lists).
+    Drafting Guidelines:
+    1. Start with an executive assessment of the overall security posture.
+    2. Focus on the most significant risks to the business (financial, operational, or data-related).
+    3. Conclude with 2-3 strategic recommendations for long-term security improvement.
+    4. Keep the narrative under 300 words.
+    5. Avoid generic boilerplate. Be specific to the severity of the findings provided.
   `;
 
   try {
